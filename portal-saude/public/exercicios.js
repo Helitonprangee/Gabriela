@@ -214,6 +214,14 @@ export const MOVIMENTOS = {
       { p: pose({ y: 131, cD: 66, kD: -4, cE: -44, kE: -44, pE: 50, bD: 176, aD: 179, bE: 174, aE: 177, cabeca: 174 }), d: 2, h: 2 },
     ],
   },
+  extensao_lombar: {
+    nome: 'Extensão da lombar em pé',
+    instrucao: 'Em pé, pés afastados, apoie as mãos na parte de baixo das costas e incline o tronco levemente para trás, olhando para cima. Segure 5 segundos e volte. Alivia a lombar de quem carrega peso.',
+    quadros: [
+      { p: pose({ bD: -35, aD: 25, mD: 60, bE: -30, aE: 30, mE: 60 }), d: 1.5, h: 0.5 },
+      { p: pose({ x: 98, lombar: 192, peito: 200, cabeca: 205, bD: -40, aD: 15, mD: 60, bE: -35, aE: 20, mE: 60 }), d: 1.8, h: 2.5 },
+    ],
+  },
   agachamento: {
     nome: 'Agachamento',
     instrucao: 'Pés na largura do quadril. Leve o quadril para trás e para baixo como quem vai sentar numa cadeira, com o peito aberto e os braços à frente. Suba empurrando o chão.',

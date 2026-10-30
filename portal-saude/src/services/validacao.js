@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.js';
 import { one, run, transaction } from '../db.js';
 import { creditarDesafio } from './pontos.js';
+import { notificar } from './notificacoes.js';
 
 export const TIPOS_ACEITOS = {
   'image/jpeg': 'image', 'image/png': 'image', 'image/webp': 'image', 'image/gif': 'image',
@@ -146,7 +147,7 @@ export function decidir(parecer, criterios, hoje = new Date()) {
 
 /** Registra o resultado e atualiza desafio e pontos. */
 export function registrarResultado(comprovanteId, { status, motivo, analise, suspeitaIa = false, validadoPor = 'ia' }) {
-  transaction(() => {
+  const desafio = transaction(() => {
     const c = one('SELECT * FROM comprovantes WHERE id = ?', comprovanteId);
     run(
       `UPDATE comprovantes SET status = ?, motivo = ?, analise = ?, suspeita_ia = ?, validado_por = ?, validado_em = datetime('now')
@@ -162,7 +163,18 @@ export function registrarResultado(comprovanteId, { status, motivo, analise, sus
       const vencido = desafio.prazo < new Date().toISOString().slice(0, 10);
       run('UPDATE desafios SET status = ? WHERE id = ? AND status = ?', vencido ? 'expirado' : 'ativo', desafio.id, 'em_analise');
     }
+    return desafio;
   });
+  if (status === 'aprovado' || status === 'recusado') {
+    const aprovado = status === 'aprovado';
+    notificar(desafio.usuario_id, {
+      tipo: `comprovante_${status}`,
+      referenciaId: comprovanteId,
+      titulo: aprovado ? `Desafio concluído: +${desafio.pontos} pontos!` : 'Comprovante recusado',
+      mensagem: aprovado ? `Seu comprovante de "${desafio.titulo}" foi aprovado.` : `"${desafio.titulo}": ${motivo} Você pode enviar um novo comprovante.`,
+      link: `#/desafio/${desafio.id}`,
+    }, { externo: true }).catch((err) => console.error('Falha ao notificar', err));
+  }
 }
 
 /** Valida um comprovante recém-enviado. Pode ser chamado em segundo plano. */

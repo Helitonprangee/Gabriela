@@ -10,7 +10,7 @@ Requisitos: **Node.js 22.13 ou mais recente**. O banco é SQLite embutido no Nod
 cd portal-saude
 npm install
 cp .env.example .env        # opcional: coloque a ANTHROPIC_API_KEY
-npm run seed                # opcional: setores, cargos e 7 colaboradores de exemplo
+npm run seed                # opcional: lojas, setores, cargos, recompensas e 7 colaboradores de exemplo
 npm start                   # http://localhost:3000
 ```
 
@@ -64,22 +64,39 @@ Cada desafio tem uma tela própria, aberta pelo botão **"Ver como fazer"** no c
 ### Pontos
 Os pontos ficam num livro-razão (`pontos_lancamentos`): o saldo é sempre a soma dos lançamentos, e uma restrição única impede que o mesmo desafio pontue duas vezes. O colaborador vê o saldo, o histórico e os desafios concluídos.
 
-### Painel do RH
-Por período (7, 30, 90 ou 365 dias): engajamento geral e por setor (engajado é quem enviou pelo menos um comprovante no período), desafios cumpridos (atividade física e preventivos), comprovantes recusados com o motivo, pontos distribuídos e uma tabela por colaborador (enviados, cumpridos, recusados, expirados, pontos e último acesso).
+### Pausa ativa no turno
+Na aba **Pausa ativa**, o colaborador faz uma sequência de **3 a 5 minutos** de alongamentos em pé, montada a partir dos riscos do cargo dele: punhos e ombros para o caixa, lombar e pernas para a reposição, pescoço para quem fica no computador. Usa o mesmo treino guiado animado, com cronômetro e narração. Vale **1 ponto por dia**, configurável em `PAUSA_ATIVA_PONTOS`. Para pontuar, o servidor confere que a pausa durou pelo menos 80% do tempo previsto.
 
-## Fase 2: recompensas (estrutura pronta)
-- Já existem as tabelas `parceiros`, `recompensas` (tipos: folga, vale-refeição, voucher…) e `resgates`.
-- O resgate vai lançar um **débito** no mesmo livro-razão (`origem = 'resgate'`), então o saldo continua sendo a soma dos lançamentos.
-- O menu mostra "Recompensas · em breve". A rota `/api/recompensas` só funciona com `FEATURE_RECOMPENSAS=true`.
-- Falta implementar: o cadastro de parceiros e recompensas pelo RH, a tela de troca e o fluxo de aprovação e entrega do resgate.
+### Ranking por loja e por setor
+A aba **Ranking** mostra a classificação do mês das lojas e dos setores pela **média de pontos por pessoa**, assim equipes pequenas e grandes competem de igual para igual. Também mostra a participação (% de pessoas que pontuaram) e destaca a loja e o setor de quem está vendo. Entram os pontos de desafios e de pausas ativas. O RH cadastra as lojas em **Lojas, setores e cargos** e vincula cada colaborador a uma loja, no cadastro ou pela coluna opcional `loja` da planilha.
+
+### Avisos e lembretes
+- **Sino no portal:** avisa sobre desafio novo, comprovante aprovado ou recusado, prazo chegando e andamento de resgates.
+- **E-mail e WhatsApp:** lembretes 2 dias antes do prazo e no último dia, além do resultado dos comprovantes e dos resgates. Só recebe quem autorizou no **próprio perfil** (LGPD). Os canais ligam quando o SMTP e o Twilio são configurados no `.env` (veja o [DEPLOY.md](DEPLOY.md)).
+- A verificação de prazos roda de hora em hora e nunca repete o mesmo aviso. O RH também pode dispará-la pelo painel.
+
+### Recompensas
+- **RH**, na aba Recompensas: cadastra **parceiros** e o **catálogo** (folga, vale-refeição, voucher, produto), com custo em pontos e estoque opcional. Depois acompanha os **resgates**: aprova (com código do voucher, se houver), marca como entregue ou cancela.
+- **Colaborador:** vê o catálogo, o quanto falta para cada item e solicita a troca. Os pontos são debitados na hora.
+- Cancelar um resgate **devolve os pontos e o estoque**. Tudo fica registrado no mesmo livro-razão de pontos (débito `resgate`, crédito `estorno`).
+
+### Painel do RH
+Por período (7, 30, 90 ou 365 dias) e por loja:
+- engajamento geral e por setor (engajado é quem enviou pelo menos um comprovante no período);
+- desafios cumpridos (atividade física e preventivos), pausas ativas, comprovantes recusados com o motivo e pontos distribuídos;
+- ranking das lojas, situação dos canais de lembrete e alerta de resgates pendentes;
+- tabela por colaborador (enviados, cumpridos, recusados, expirados, pontos e último acesso).
+
+## Colocar no ar
+O portal já vem pronto para produção com **Docker + Caddy**: HTTPS automático com Let's Encrypt, backup diário do banco e dos comprovantes, verificação de saúde e atualização do banco sem perda de dados. O passo a passo completo está no **[DEPLOY.md](DEPLOY.md)**.
 
 ## Estrutura
 
 ```
 src/
   server.js          Express, segurança, rotas
-  config.js          configurações (pontos por categoria, IA, fase 2)
-  db.js              schema SQLite (incluindo as tabelas da fase 2)
+  config.js          configurações (desafios, IA, pausa ativa, lembretes, backup)
+  db.js              schema SQLite e migrações numeradas
   auth.js            senhas (scrypt), sessão em cookie httpOnly, permissões
   seed.js            dados de exemplo
   routes/            auth, colaborador, rh
@@ -89,7 +106,13 @@ src/
     importacao.js    leitura e conferência das planilhas
     validacao.js     validação dos comprovantes (metadados + Claude)
     pontos.js        saldo e lançamentos
-public/              interface (HTML, CSS e JS, sem build)
+    recompensas.js   catálogo, resgate, aprovação e estorno
+    notificacoes.js  avisos no portal, e-mail (SMTP) e WhatsApp (Twilio) e lembretes de prazo
+    pausa.js         pausa ativa por cargo
+    ranking.js       ranking mensal por loja e setor
+    videos.js        links de vídeo do RH (YouTube, Vimeo, MP4)
+    backup.js        backup diário com retenção
+public/              interface (HTML, CSS e JS, sem build); exercicios.js = movimentos animados
 test/                testes (node:test)
 ```
 

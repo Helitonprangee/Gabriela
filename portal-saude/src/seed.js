@@ -57,14 +57,24 @@ const SETORES = [
   },
 ];
 
+const LOJAS = [['Loja Centro', 'Curitiba'], ['Loja Bairro Alto', 'Curitiba'], ['Loja São José', 'São José dos Pinhais']];
+
 const COLABORADORES = [
-  ['10001', 'Maria Aparecida Souza', '1975-04-12', 'F', 'Frente de Caixa', 'Operador(a) de Caixa'],
-  ['10002', 'Lucas Ferreira Lima', '2005-09-30', 'M', 'Frente de Caixa', 'Operador(a) de Caixa'],
-  ['10003', 'Juliana Costa Ribeiro', '1992-01-18', 'F', 'Frente de Caixa', 'Fiscal de Caixa'],
-  ['10004', 'José Carlos Pereira', '1968-07-03', 'M', 'Reposição e Estoque', 'Repositor(a)'],
-  ['10005', 'Ana Beatriz Martins', '1999-11-22', 'F', 'Reposição e Estoque', 'Conferente de Câmara Fria'],
-  ['10006', 'Roberto Alves Nunes', '1981-02-14', 'M', 'Padaria', 'Padeiro(a)'],
-  ['10007', 'Fernanda Oliveira Rocha', '1988-06-05', 'F', 'Administrativo', 'Assistente Administrativo'],
+  ['10001', 'Maria Aparecida Souza', '1975-04-12', 'F', 'Frente de Caixa', 'Operador(a) de Caixa', 'Loja Centro'],
+  ['10002', 'Lucas Ferreira Lima', '2005-09-30', 'M', 'Frente de Caixa', 'Operador(a) de Caixa', 'Loja Centro'],
+  ['10003', 'Juliana Costa Ribeiro', '1992-01-18', 'F', 'Frente de Caixa', 'Fiscal de Caixa', 'Loja Bairro Alto'],
+  ['10004', 'José Carlos Pereira', '1968-07-03', 'M', 'Reposição e Estoque', 'Repositor(a)', 'Loja Bairro Alto'],
+  ['10005', 'Ana Beatriz Martins', '1999-11-22', 'F', 'Reposição e Estoque', 'Conferente de Câmara Fria', 'Loja São José'],
+  ['10006', 'Roberto Alves Nunes', '1981-02-14', 'M', 'Padaria', 'Padeiro(a)', 'Loja São José'],
+  ['10007', 'Fernanda Oliveira Rocha', '1988-06-05', 'F', 'Administrativo', 'Assistente Administrativo', 'Loja Centro'],
+];
+
+const PARCEIROS = [['Pizzaria Forno a Lenha', 'contato@pizzaria.exemplo'], ['Restaurante Sabor Caseiro', '(41) 3333-0000']];
+const RECOMPENSAS = [
+  [null, 'Dia de folga', 'Um dia de folga, com data combinada com o gestor.', 'folga', 300, null],
+  ['Restaurante Sabor Caseiro', 'Vale-refeição R$ 30', 'Válido por 60 dias no restaurante parceiro.', 'vale_refeicao', 60, 20],
+  ['Pizzaria Forno a Lenha', 'Vale-pizza grande', 'Uma pizza grande para retirar ou receber em casa.', 'voucher', 80, 10],
+  [null, 'Garrafa térmica Viva Bem', 'Para manter a hidratação durante o turno.', 'produto', 40, 30],
 ];
 
 transaction(() => {
@@ -84,12 +94,21 @@ transaction(() => {
       cargoIds[`${s.nome}|${c.nome}`] = { setorId, cargoId };
     }
   }
+  for (const [nome, cidade] of LOJAS) run('INSERT OR IGNORE INTO lojas (nome, cidade) VALUES (?, ?)', nome, cidade);
   const senha = hashSenha(config.senhaInicial);
-  for (const [matricula, nome, nascimento, sexo, setor, cargo] of COLABORADORES) {
+  for (const [matricula, nome, nascimento, sexo, setor, cargo, loja] of COLABORADORES) {
     if (one('SELECT 1 FROM usuarios WHERE matricula = ?', matricula)) continue;
     const { setorId, cargoId } = cargoIds[`${setor}|${cargo}`];
-    run(`INSERT INTO usuarios (matricula, nome, data_nascimento, sexo, setor_id, cargo_id, senha_hash) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      matricula, nome, nascimento, sexo, setorId, cargoId, senha);
+    run(`INSERT INTO usuarios (matricula, nome, data_nascimento, sexo, setor_id, cargo_id, loja_id, senha_hash)
+         VALUES (?, ?, ?, ?, ?, ?, (SELECT id FROM lojas WHERE nome = ?), ?)`,
+      matricula, nome, nascimento, sexo, setorId, cargoId, loja, senha);
+  }
+  if (!one('SELECT 1 FROM parceiros')) {
+    for (const [nome, contato] of PARCEIROS) run('INSERT INTO parceiros (nome, contato) VALUES (?, ?)', nome, contato);
+    for (const [parceiro, titulo, descricao, tipo, custo, estoque] of RECOMPENSAS) {
+      run(`INSERT INTO recompensas (parceiro_id, titulo, descricao, tipo, custo_pontos, estoque)
+           VALUES ((SELECT id FROM parceiros WHERE nome = ?), ?, ?, ?, ?, ?)`, parceiro, titulo, descricao, tipo, custo, estoque);
+    }
   }
 });
 

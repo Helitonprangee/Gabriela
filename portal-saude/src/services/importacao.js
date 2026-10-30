@@ -13,6 +13,7 @@ const APELIDOS = {
   sexo: ['sexo', 'genero', 'gênero'],
   setor: ['setor', 'departamento', 'area'],
   cargo: ['cargo', 'funcao', 'função'],
+  loja: ['loja', 'unidade', 'filial'],  // opcional
 };
 
 function mapearCabecalho(cabecalho) {
@@ -109,6 +110,7 @@ export function validarLinhas(linhas, hoje = new Date()) {
   }
 
   const setores = new Map(all('SELECT id, nome FROM setores').map((s) => [normalizar(s.nome), s]));
+  const lojas = new Map(all('SELECT id, nome FROM lojas').map((l) => [normalizar(l.nome), l]));
   const cargos = all('SELECT id, nome, setor_id FROM cargos');
   const existentes = new Set(all('SELECT matricula FROM usuarios').map((u) => u.matricula));
   const vistas = new Map();
@@ -116,7 +118,7 @@ export function validarLinhas(linhas, hoje = new Date()) {
 
   linhas.slice(idxCabecalho + 1).forEach((valores, i) => {
     const numero = idxCabecalho + i + 2; // número da linha como aparece no Excel
-    const bruto = Object.fromEntries(COLUNAS.map((c) => [c, valores[mapa[c]]]));
+    const bruto = Object.fromEntries([...COLUNAS, 'loja'].map((c) => [c, mapa[c] == null ? '' : valores[mapa[c]]]));
     if (COLUNAS.every((c) => String(bruto[c] ?? '').trim() === '')) return; // linha em branco
 
     const erros = [];
@@ -148,13 +150,15 @@ export function validarLinhas(linhas, hoje = new Date()) {
     else if (!setor) erros.push(`Setor "${bruto.setor}" não está cadastrado.`);
     if (String(bruto.cargo ?? '').trim() === '') erros.push('Cargo não informado.');
     else if (setor && !cargo) erros.push(`Cargo "${bruto.cargo}" não está cadastrado no setor ${setor.nome}.`);
+    const loja = String(bruto.loja ?? '').trim() ? lojas.get(normalizar(bruto.loja)) : undefined;
+    if (String(bruto.loja ?? '').trim() && !loja) erros.push(`Loja "${bruto.loja}" não está cadastrada.`);
 
     resultado.push({
       linha: numero,
       valido: erros.length === 0,
       erros,
       avisos,
-      dados: { nome, matricula, data_nascimento: data, sexo, setor_id: setor?.id, cargo_id: cargo?.id, setor: setor?.nome ?? bruto.setor, cargo: cargo?.nome ?? bruto.cargo },
+      dados: { nome, matricula, data_nascimento: data, sexo, setor_id: setor?.id, cargo_id: cargo?.id, loja_id: loja?.id ?? null, setor: setor?.nome ?? bruto.setor, cargo: cargo?.nome ?? bruto.cargo, loja: loja?.nome ?? bruto.loja ?? '' },
     });
   });
 

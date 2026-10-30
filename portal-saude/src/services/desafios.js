@@ -1,6 +1,7 @@
 import { MODELOS, comoComprovar, appSugerido, intervaloDe } from './catalogo.js';
 import { all, one, run, transaction } from '../db.js';
 import { config } from '../config.js';
+import { notificar } from './notificacoes.js';
 
 export const NIVEIS_RISCO = ['nenhum', 'baixo', 'médio', 'alto'];
 export const REGIOES = ['punhos', 'ombros', 'pescoco', 'coluna', 'pernas'];
@@ -192,5 +193,11 @@ export function gerarDesafios(usuarioId, { hoje = new Date(), aleatorio = Math.r
       }
     }
   });
+  for (const d of criados) {
+    notificar(usuarioId, {
+      tipo: 'novo_desafio', referenciaId: d.id, titulo: 'Novo desafio para você',
+      mensagem: `${d.titulo} (+${d.pontos} pontos, até ${d.prazo.split('-').reverse().join('/')}).`, link: `#/desafio/${d.id}`,
+    }).catch(() => {});
+  }
   return criados;
 }

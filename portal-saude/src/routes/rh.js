@@ -8,6 +8,9 @@ import { COLUNAS, converterData, converterSexo, lerPlanilha, validarLinhas } fro
 import { registrarResultado, validarComprovante } from '../services/validacao.js';
 import { MODELOS } from '../services/catalogo.js';
 import { converterVideo, listarVideos } from '../services/videos.js';
+import { ErroResgate, TIPOS_RECOMPENSA, atualizarResgate } from '../services/recompensas.js';
+import { canaisConfigurados, executarLembretes } from '../services/notificacoes.js';
+import { ranking } from '../services/ranking.js';
 
 export const rotasRH = Router();
 const uploadPlanilha = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
@@ -45,6 +48,36 @@ rotasRH.delete('/setores/:id', (req, res) => {
   if (one('SELECT 1 FROM cargos WHERE setor_id = ?', id)) return erro(res, 'Remova os cargos do setor antes de excluí-lo.');
   if (one('SELECT 1 FROM usuarios WHERE setor_id = ?', id)) return erro(res, 'Há colaboradores neste setor.');
   run('DELETE FROM setores WHERE id = ?', id);
+  res.json({ ok: true });
+});
+
+// ---------------- Lojas ----------------
+
+rotasRH.get('/lojas', (_req, res) => {
+  res.json(all(`SELECT l.*, (SELECT COUNT(*) FROM usuarios u WHERE u.loja_id = l.id AND u.ativo = 1) AS colaboradores FROM lojas l ORDER BY l.nome`));
+});
+
+rotasRH.post('/lojas', (req, res) => {
+  const nome = texto(req.body?.nome);
+  if (!nome) return erro(res, 'Informe o nome da loja.');
+  if (one('SELECT 1 FROM lojas WHERE nome = ?', nome)) return erro(res, 'Já existe uma loja com esse nome.');
+  const { lastInsertRowid } = run('INSERT INTO lojas (nome, cidade) VALUES (?, ?)', nome, texto(req.body?.cidade) || null);
+  res.status(201).json(one('SELECT * FROM lojas WHERE id = ?', lastInsertRowid));
+});
+
+rotasRH.put('/lojas/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const nome = texto(req.body?.nome);
+  if (!nome) return erro(res, 'Informe o nome da loja.');
+  if (one('SELECT 1 FROM lojas WHERE nome = ? AND id <> ?', nome, id)) return erro(res, 'Já existe uma loja com esse nome.');
+  run('UPDATE lojas SET nome = ?, cidade = ? WHERE id = ?', nome, texto(req.body?.cidade) || null, id);
+  res.json(one('SELECT * FROM lojas WHERE id = ?', id));
+});
+
+rotasRH.delete('/lojas/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (one('SELECT 1 FROM usuarios WHERE loja_id = ?', id)) return erro(res, 'Há colaboradores nesta loja.');
+  run('DELETE FROM lojas WHERE id = ?', id);
   res.json({ ok: true });
 });
 
@@ -139,15 +172,17 @@ rotasRH.delete('/cargos/:id', (req, res) => {
 // ---------------- Colaboradores ----------------
 
 const SELECT_COLABORADOR = `
-  SELECT u.id, u.matricula, u.nome, u.data_nascimento, u.sexo, u.setor_id, u.cargo_id, u.papel, u.ativo,
-         u.deve_trocar_senha, u.ultimo_acesso, u.email, u.telefone, s.nome AS setor, c.nome AS cargo,
+  SELECT u.id, u.matricula, u.nome, u.data_nascimento, u.sexo, u.setor_id, u.cargo_id, u.loja_id, u.papel, u.ativo,
+         u.deve_trocar_senha, u.ultimo_acesso, u.email, u.telefone, s.nome AS setor, c.nome AS cargo, l.nome AS loja,
          COALESCE((SELECT SUM(pontos) FROM pontos_lancamentos p WHERE p.usuario_id = u.id), 0) AS saldo
-  FROM usuarios u LEFT JOIN setores s ON s.id = u.setor_id LEFT JOIN cargos c ON c.id = u.cargo_id`;
+  FROM usuarios u LEFT JOIN setores s ON s.id = u.setor_id LEFT JOIN cargos c ON c.id = u.cargo_id
+  LEFT JOIN lojas l ON l.id = u.loja_id`;
 
 rotasRH.get('/colaboradores', (req, res) => {
   const filtros = ["u.papel = 'colaborador'"];
   const params = [];
   if (req.query.setor_id) { filtros.push('u.setor_id = ?'); params.push(Number(req.query.setor_id)); }
+  if (req.query.loja_id) { filtros.push('u.loja_id = ?'); params.push(Number(req.query.loja_id)); }
   if (req.query.busca) { filtros.push('(u.nome LIKE ? OR u.matricula LIKE ?)'); params.push(`%${req.query.busca}%`, `%${req.query.busca}%`); }
   res.json(all(`${SELECT_COLABORADOR} WHERE ${filtros.join(' AND ')} ORDER BY u.nome`, ...params));
 });
@@ -165,16 +200,18 @@ function validarColaborador(d, idAtual = null) {
   if (!data) return { erro: 'Data de nascimento inválida.' };
   if (!sexo) return { erro: 'Sexo inválido.' };
   if (!one('SELECT 1 FROM cargos WHERE id = ? AND setor_id = ?', cargoId, setorId)) return { erro: 'Escolha um setor e um cargo desse setor.' };
-  return { valores: { nome, matricula, data_nascimento: data, sexo, setor_id: setorId, cargo_id: cargoId } };
+  const lojaId = d.loja_id ? Number(d.loja_id) : null;
+  if (lojaId && !one('SELECT 1 FROM lojas WHERE id = ?', lojaId)) return { erro: 'Loja inválida.' };
+  return { valores: { nome, matricula, data_nascimento: data, sexo, setor_id: setorId, cargo_id: cargoId, loja_id: lojaId } };
 }
 
 rotasRH.post('/colaboradores', (req, res) => {
   const { erro: msg, valores: v } = validarColaborador(req.body ?? {});
   if (msg) return erro(res, msg);
   const { lastInsertRowid } = run(
-    `INSERT INTO usuarios (matricula, nome, data_nascimento, sexo, setor_id, cargo_id, senha_hash, deve_trocar_senha)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-    v.matricula, v.nome, v.data_nascimento, v.sexo, v.setor_id, v.cargo_id, hashSenha(config.senhaInicial),
+    `INSERT INTO usuarios (matricula, nome, data_nascimento, sexo, setor_id, cargo_id, loja_id, senha_hash, deve_trocar_senha)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+    v.matricula, v.nome, v.data_nascimento, v.sexo, v.setor_id, v.cargo_id, v.loja_id, hashSenha(config.senhaInicial),
   );
   res.status(201).json(one(`${SELECT_COLABORADOR} WHERE u.id = ?`, lastInsertRowid));
 });
@@ -185,9 +222,9 @@ rotasRH.put('/colaboradores/:id', (req, res) => {
   const { erro: msg, valores: v } = validarColaborador(req.body ?? {}, id);
   if (msg) return erro(res, msg);
   run(
-    `UPDATE usuarios SET matricula = ?, nome = ?, data_nascimento = ?, sexo = ?, setor_id = ?, cargo_id = ?, ativo = ?,
+    `UPDATE usuarios SET matricula = ?, nome = ?, data_nascimento = ?, sexo = ?, setor_id = ?, cargo_id = ?, loja_id = ?, ativo = ?,
        updated_at = datetime('now') WHERE id = ?`,
-    v.matricula, v.nome, v.data_nascimento, v.sexo, v.setor_id, v.cargo_id, req.body.ativo === false ? 0 : 1, id,
+    v.matricula, v.nome, v.data_nascimento, v.sexo, v.setor_id, v.cargo_id, v.loja_id, req.body.ativo === false ? 0 : 1, id,
   );
   if (req.body.ativo === false) run('DELETE FROM sessoes WHERE usuario_id = ?', id);
   res.json(one(`${SELECT_COLABORADOR} WHERE u.id = ?`, id));
@@ -211,9 +248,9 @@ rotasRH.get('/colaboradores/:id/desafios', (req, res) => {
 // ---------------- Importação de planilha ----------------
 
 rotasRH.get('/importacao/modelo', (_req, res) => {
-  const exemplo = ['Maria da Silva', '10001', '15/03/1985', 'F', 'Frente de Caixa', 'Operador(a) de Caixa'];
+  const exemplo = ['Maria da Silva', '10001', '15/03/1985', 'F', 'Frente de Caixa', 'Operador(a) de Caixa', 'Loja Centro'];
   res.attachment('modelo-colaboradores.csv').type('text/csv')
-    .send(`﻿${COLUNAS.join(';')}\n${exemplo.join(';')}\n`);
+    .send(`\uFEFF${[...COLUNAS, 'loja'].join(';')}\n${exemplo.join(';')}\n`);
 });
 
 async function analisarPlanilha(req) {
@@ -248,12 +285,13 @@ rotasRH.post('/importacao/confirmar', uploadPlanilha.single('planilha'), async (
       if (!valido) continue;
       const existente = one('SELECT id FROM usuarios WHERE matricula = ?', d.matricula);
       if (existente) {
-        run(`UPDATE usuarios SET nome = ?, data_nascimento = ?, sexo = ?, setor_id = ?, cargo_id = ?, updated_at = datetime('now') WHERE id = ?`,
-          d.nome, d.data_nascimento, d.sexo, d.setor_id, d.cargo_id, existente.id);
+        run(`UPDATE usuarios SET nome = ?, data_nascimento = ?, sexo = ?, setor_id = ?, cargo_id = ?, loja_id = COALESCE(?, loja_id),
+               updated_at = datetime('now') WHERE id = ?`,
+          d.nome, d.data_nascimento, d.sexo, d.setor_id, d.cargo_id, d.loja_id ?? null, existente.id);
         atualizados++;
       } else {
-        run(`INSERT INTO usuarios (matricula, nome, data_nascimento, sexo, setor_id, cargo_id, senha_hash) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          d.matricula, d.nome, d.data_nascimento, d.sexo, d.setor_id, d.cargo_id, senha);
+        run(`INSERT INTO usuarios (matricula, nome, data_nascimento, sexo, setor_id, cargo_id, loja_id, senha_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          d.matricula, d.nome, d.data_nascimento, d.sexo, d.setor_id, d.cargo_id, d.loja_id ?? null, senha);
         criados++;
       }
     }
@@ -361,6 +399,7 @@ rotasRH.post('/comprovantes/:id/reprocessar', async (req, res) => {
 
 rotasRH.get('/painel', (req, res) => {
   const dias = [7, 30, 90, 365].includes(Number(req.query.dias)) ? Number(req.query.dias) : 30;
+  const lojaId = req.query.loja_id ? Number(req.query.loja_id) : null;
   const desde = new Date(Date.now() - dias * 86_400_000).toISOString().slice(0, 19).replace('T', ' ');
 
   // Engajado = enviou pelo menos um comprovante no período.
@@ -370,12 +409,13 @@ rotasRH.get('/painel', (req, res) => {
        (SELECT COUNT(*) FROM comprovantes k WHERE k.usuario_id = u.id AND k.created_at >= ?) AS enviados,
        (SELECT COUNT(*) FROM comprovantes k WHERE k.usuario_id = u.id AND k.status = 'recusado' AND k.created_at >= ?) AS recusados,
        (SELECT COUNT(*) FROM desafios d WHERE d.usuario_id = u.id AND d.status = 'expirado' AND d.prazo >= date(?)) AS expirados,
-       COALESCE((SELECT SUM(p.pontos) FROM pontos_lancamentos p WHERE p.usuario_id = u.id AND p.pontos > 0 AND p.created_at >= ?), 0) AS pontos_periodo,
+       COALESCE((SELECT SUM(p.pontos) FROM pontos_lancamentos p WHERE p.usuario_id = u.id AND p.origem IN ('desafio','pausa_ativa') AND p.created_at >= ?), 0) AS pontos_periodo,
+       (SELECT COUNT(*) FROM pausas_ativas a WHERE a.usuario_id = u.id AND a.concluida_em IS NOT NULL AND a.iniciada_em >= ?) AS pausas,
        COALESCE((SELECT SUM(p.pontos) FROM pontos_lancamentos p WHERE p.usuario_id = u.id), 0) AS saldo
      FROM usuarios u LEFT JOIN setores s ON s.id = u.setor_id LEFT JOIN cargos c ON c.id = u.cargo_id
-     WHERE u.papel = 'colaborador' AND u.ativo = 1
+     WHERE u.papel = 'colaborador' AND u.ativo = 1 AND (? IS NULL OR u.loja_id = ?)
      ORDER BY pontos_periodo DESC, u.nome`,
-    desde, desde, desde, desde, desde,
+    desde, desde, desde, desde, desde, desde, lojaId, lojaId,
   );
 
   const setores = new Map();
@@ -399,27 +439,122 @@ rotasRH.get('/painel', (req, res) => {
     concluidos: t.concluidos + c.concluidos,
     recusados: t.recusados + c.recusados,
     pontos: t.pontos + c.pontos_periodo,
-  }), { colaboradores: 0, engajados: 0, concluidos: 0, recusados: 0, pontos: 0 });
+    pausas: t.pausas + c.pausas,
+  }), { colaboradores: 0, engajados: 0, concluidos: 0, recusados: 0, pontos: 0, pausas: 0 });
   totais.engajamento = totais.colaboradores ? Math.round((totais.engajados / totais.colaboradores) * 100) : 0;
   totais.em_analise = one(`SELECT COUNT(*) AS n FROM comprovantes WHERE status = 'em_analise'`).n;
 
   const cumpridos = all(
     `SELECT d.id, d.titulo, d.categoria, d.pontos, d.concluido_em, u.nome, s.nome AS setor
      FROM desafios d JOIN usuarios u ON u.id = d.usuario_id LEFT JOIN setores s ON s.id = u.setor_id
-     WHERE d.status = 'concluido' AND d.concluido_em >= ? ORDER BY d.concluido_em DESC LIMIT 50`,
-    desde,
+     WHERE d.status = 'concluido' AND d.concluido_em >= ? AND (? IS NULL OR u.loja_id = ?) ORDER BY d.concluido_em DESC LIMIT 50`,
+    desde, lojaId, lojaId,
   );
   const recusados = all(
     `SELECT k.id, k.motivo, k.suspeita_ia, k.created_at, d.titulo AS desafio, u.nome, s.nome AS setor
      FROM comprovantes k JOIN desafios d ON d.id = k.desafio_id JOIN usuarios u ON u.id = k.usuario_id
      LEFT JOIN setores s ON s.id = u.setor_id
-     WHERE k.status = 'recusado' AND k.created_at >= ? ORDER BY k.id DESC LIMIT 50`,
-    desde,
+     WHERE k.status = 'recusado' AND k.created_at >= ? AND (? IS NULL OR u.loja_id = ?) ORDER BY k.id DESC LIMIT 50`,
+    desde, lojaId, lojaId,
   );
   const porCategoria = all(
-    `SELECT categoria, COUNT(*) AS concluidos FROM desafios WHERE status = 'concluido' AND concluido_em >= ? GROUP BY categoria`,
-    desde,
+    `SELECT d.categoria, COUNT(*) AS concluidos FROM desafios d JOIN usuarios u ON u.id = d.usuario_id
+     WHERE d.status = 'concluido' AND d.concluido_em >= ? AND (? IS NULL OR u.loja_id = ?) GROUP BY d.categoria`,
+    desde, lojaId, lojaId,
   );
 
-  res.json({ dias, totais, porSetor, porColaborador, cumpridos, recusados, porCategoria, ia_habilitada: config.iaHabilitada });
+  const resgatesPendentes = one(`SELECT COUNT(*) AS n FROM resgates WHERE status IN ('solicitado','aprovado')`).n;
+  res.json({
+    dias, loja_id: lojaId, totais, porSetor, porColaborador, cumpridos, recusados, porCategoria,
+    lojas: all('SELECT id, nome FROM lojas ORDER BY nome'), ranking: ranking(),
+    ia_habilitada: config.iaHabilitada, canais: canaisConfigurados(), resgates_pendentes: resgatesPendentes,
+  });
 });
+
+// ---------------- Recompensas (parceiros, catálogo e resgates) ----------------
+
+rotasRH.get('/parceiros', (_req, res) => res.json(all('SELECT * FROM parceiros ORDER BY nome')));
+
+rotasRH.post('/parceiros', (req, res) => {
+  const nome = texto(req.body?.nome);
+  if (!nome) return erro(res, 'Informe o nome do parceiro.');
+  const { lastInsertRowid } = run('INSERT INTO parceiros (nome, contato) VALUES (?, ?)', nome, texto(req.body?.contato) || null);
+  res.status(201).json(one('SELECT * FROM parceiros WHERE id = ?', lastInsertRowid));
+});
+
+rotasRH.put('/parceiros/:id', (req, res) => {
+  const nome = texto(req.body?.nome);
+  if (!nome) return erro(res, 'Informe o nome do parceiro.');
+  run('UPDATE parceiros SET nome = ?, contato = ?, ativo = ? WHERE id = ?', nome, texto(req.body?.contato) || null, req.body?.ativo === false ? 0 : 1, Number(req.params.id));
+  res.json(one('SELECT * FROM parceiros WHERE id = ?', Number(req.params.id)));
+});
+
+function validarRecompensa(b) {
+  const titulo = texto(b.titulo);
+  const custo = Number(b.custo_pontos);
+  const estoque = b.estoque === '' || b.estoque == null ? null : Number(b.estoque);
+  const parceiroId = b.parceiro_id ? Number(b.parceiro_id) : null;
+  if (!titulo) return { erro: 'Informe o título.' };
+  if (!TIPOS_RECOMPENSA.includes(b.tipo)) return { erro: 'Tipo inválido.' };
+  if (!Number.isInteger(custo) || custo <= 0) return { erro: 'O custo em pontos deve ser um número inteiro maior que zero.' };
+  if (estoque !== null && (!Number.isInteger(estoque) || estoque < 0)) return { erro: 'Estoque inválido (deixe vazio para ilimitado).' };
+  if (parceiroId && !one('SELECT 1 FROM parceiros WHERE id = ?', parceiroId)) return { erro: 'Parceiro inválido.' };
+  return { v: { titulo, descricao: texto(b.descricao) || null, tipo: b.tipo, custo, estoque, parceiroId, ativo: b.ativo === false ? 0 : 1 } };
+}
+
+rotasRH.get('/recompensas', (_req, res) => {
+  res.json({
+    tipos: TIPOS_RECOMPENSA,
+    itens: all(`SELECT r.*, p.nome AS parceiro, (SELECT COUNT(*) FROM resgates g WHERE g.recompensa_id = r.id AND g.status <> 'cancelado') AS resgates
+                FROM recompensas r LEFT JOIN parceiros p ON p.id = r.parceiro_id ORDER BY r.ativo DESC, r.custo_pontos`),
+  });
+});
+
+rotasRH.post('/recompensas', (req, res) => {
+  const { erro: msg, v } = validarRecompensa(req.body ?? {});
+  if (msg) return erro(res, msg);
+  const { lastInsertRowid } = run(
+    'INSERT INTO recompensas (parceiro_id, titulo, descricao, tipo, custo_pontos, estoque, ativo) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    v.parceiroId, v.titulo, v.descricao, v.tipo, v.custo, v.estoque, v.ativo,
+  );
+  res.status(201).json(one('SELECT * FROM recompensas WHERE id = ?', lastInsertRowid));
+});
+
+rotasRH.put('/recompensas/:id', (req, res) => {
+  const { erro: msg, v } = validarRecompensa(req.body ?? {});
+  if (msg) return erro(res, msg);
+  run('UPDATE recompensas SET parceiro_id = ?, titulo = ?, descricao = ?, tipo = ?, custo_pontos = ?, estoque = ?, ativo = ? WHERE id = ?',
+    v.parceiroId, v.titulo, v.descricao, v.tipo, v.custo, v.estoque, v.ativo, Number(req.params.id));
+  res.json(one('SELECT * FROM recompensas WHERE id = ?', Number(req.params.id)));
+});
+
+rotasRH.get('/resgates', (req, res) => {
+  const status = ['solicitado', 'aprovado', 'entregue', 'cancelado'].includes(req.query.status) ? req.query.status : null;
+  res.json(all(
+    `SELECT g.*, r.titulo, r.tipo, p.nome AS parceiro, u.nome, u.matricula, l.nome AS loja, s.nome AS setor
+     FROM resgates g JOIN recompensas r ON r.id = g.recompensa_id LEFT JOIN parceiros p ON p.id = r.parceiro_id
+     JOIN usuarios u ON u.id = g.usuario_id LEFT JOIN lojas l ON l.id = u.loja_id LEFT JOIN setores s ON s.id = u.setor_id
+     ${status ? 'WHERE g.status = ?' : ''} ORDER BY g.id DESC LIMIT 300`,
+    ...(status ? [status] : []),
+  ));
+});
+
+rotasRH.post('/resgates/:id/status', async (req, res) => {
+  try {
+    await atualizarResgate(Number(req.params.id), req.body?.status, {
+      codigoVoucher: texto(req.body?.codigo_voucher) || null, observacao: texto(req.body?.observacao) || null,
+    });
+    res.json({ ok: true });
+  } catch (err) {
+    if (err instanceof ErroResgate) return erro(res, err.message);
+    throw err;
+  }
+});
+
+// ---------------- Lembretes e ranking ----------------
+
+rotasRH.post('/lembretes/executar', async (_req, res) => {
+  res.json({ enviados: await executarLembretes(), canais: canaisConfigurados() });
+});
+
+rotasRH.get('/ranking', (req, res) => res.json(ranking(req.query.mes)));

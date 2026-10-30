@@ -1,0 +1,35 @@
+# Sobe o portal com HTTPS automático (Caddy + Let's Encrypt).
+# Uso: copie .env.example para .env, preencha DOMINIO e as chaves, e rode: docker compose up -d
+services:
+  portal:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRUST_PROXY: "1"
+      URL_PUBLICA: https://${DOMINIO}
+    volumes:
+      - dados:/dados
+      - ./backups:/backups
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    depends_on:
+      - portal
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMINIO: ${DOMINIO}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_dados:/data
+      - caddy_config:/config
+
+volumes:
+  dados:
+  caddy_dados:
+  caddy_config:

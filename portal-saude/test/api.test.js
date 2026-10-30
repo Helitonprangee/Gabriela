@@ -151,6 +151,49 @@ test('tela do exercício: detalhe do desafio e vídeo cadastrado pelo RH', async
   assert.equal((await outro('GET', `/api/desafios/${d.id}`)).status, 404);
 });
 
-test('recompensas (fase 2) ficam desligadas', async () => {
-  assert.equal((await colab('GET', '/api/recompensas')).status, 404);
+test('recompensas: RH cadastra, colaborador troca pontos, RH cancela e os pontos voltam', async () => {
+  const parceiro = (await rh('POST', '/api/rh/parceiros', { nome: 'Pizzaria do Bairro' })).dados;
+  const pizza = (await rh('POST', '/api/rh/recompensas', { titulo: 'Vale-pizza', tipo: 'voucher', custo_pontos: 5, estoque: 1, parceiro_id: parceiro.id })).dados;
+  const folga = (await rh('POST', '/api/rh/recompensas', { titulo: 'Dia de folga', tipo: 'folga', custo_pontos: 500 })).dados;
+  assert.equal((await rh('POST', '/api/rh/recompensas', { titulo: 'X', tipo: 'voucher', custo_pontos: 0 })).status, 400);
+
+  const antes = (await colab('GET', '/api/recompensas')).dados;
+  assert.equal(antes.itens.length, 2);
+  assert.match((await colab('POST', `/api/recompensas/${folga.id}/resgatar`)).dados.erro, /Saldo insuficiente/);
+  const r = await colab('POST', `/api/recompensas/${pizza.id}/resgatar`);
+  assert.equal(r.status, 201);
+  assert.equal(r.dados.saldo, antes.saldo - 5);
+  assert.match((await colab('POST', `/api/recompensas/${pizza.id}/resgatar`)).dados.erro, /esgotou|Saldo/);
+
+  const pendentes = (await rh('GET', '/api/rh/resgates?status=solicitado')).dados;
+  assert.equal(pendentes[0].titulo, 'Vale-pizza');
+  assert.equal((await rh('POST', `/api/rh/resgates/${r.dados.id}/status`, { status: 'entregue' })).status, 400, 'precisa aprovar antes');
+  await rh('POST', `/api/rh/resgates/${r.dados.id}/status`, { status: 'aprovado', codigo_voucher: 'PZ-123' });
+  await rh('POST', `/api/rh/resgates/${r.dados.id}/status`, { status: 'cancelado', observacao: 'Parceiro fechou.' });
+  const depois = (await colab('GET', '/api/recompensas')).dados;
+  assert.equal(depois.saldo, antes.saldo, 'estorno devolve os pontos');
+  assert.equal(depois.itens.find((i) => i.id === pizza.id).estoque, 1, 'estoque volta');
+  assert.equal(depois.resgates[0].status, 'cancelado');
+  const avisos = (await colab('GET', '/api/notificacoes')).dados;
+  assert.ok(avisos.itens.some((n) => n.tipo === 'resgate_cancelado'));
+  assert.ok(avisos.itens.some((n) => n.tipo === 'comprovante_aprovado'));
+  await colab('POST', '/api/notificacoes/lidas');
+  assert.equal((await colab('GET', '/api/notificacoes')).dados.nao_lidas, 0);
+});
+
+test('lojas, ranking e pausa ativa', async () => {
+  const loja = (await rh('POST', '/api/rh/lojas', { nome: 'Loja Centro', cidade: 'Curitiba' })).dados;
+  const lista = (await rh('GET', '/api/rh/colaboradores')).dados;
+  for (const c of lista) await rh('PUT', `/api/rh/colaboradores/${c.id}`, { ...c, loja_id: loja.id });
+  const rk = (await colab('GET', '/api/ranking')).dados;
+  assert.equal(rk.lojas[0].nome, 'Loja Centro');
+  assert.equal(rk.lojas[0].posicao, 1);
+  assert.ok(rk.setores[0].pontos > 0);
+  assert.equal((await rh('GET', `/api/rh/painel?loja_id=${loja.id}`)).dados.totais.colaboradores, 2);
+
+  const pausa = (await colab('GET', '/api/pausa-ativa')).dados;
+  assert.ok(pausa.duracao >= 120 && pausa.duracao <= 300, String(pausa.duracao));
+  assert.ok(pausa.passos.some((p) => p.mov === 'extensao_punho'), 'caixa recebe alongamento de punho');
+  const { id } = (await colab('POST', '/api/pausa-ativa/iniciar')).dados;
+  assert.match((await colab('POST', `/api/pausa-ativa/${id}/concluir`)).dados.erro, /até o fim/);
 });

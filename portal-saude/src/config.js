@@ -16,6 +16,22 @@ export const config = {
   iaHabilitada: Boolean(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
   // Quantidade de desafios ativos que cada colaborador mantém.
   desafiosAtivos: { atividade_fisica: 2, saude_preventiva: 1 },
-  // Fase 2: troca de pontos por recompensas.
-  recompensasHabilitadas: process.env.FEATURE_RECOMPENSAS === 'true',
+  // Troca de pontos por recompensas (pode ser desligada com FEATURE_RECOMPENSAS=false).
+  recompensasHabilitadas: process.env.FEATURE_RECOMPENSAS !== 'false',
+  // Pausa ativa: pontos por pausa concluída, no máximo uma vez por dia.
+  pausaAtiva: { pontos: Number(process.env.PAUSA_ATIVA_PONTOS ?? 1), limitePorDia: 1 },
+  // Lembretes: dias antes do prazo para avisar.
+  lembreteDiasAntes: 2,
+  urlPublica: process.env.URL_PUBLICA ?? `http://localhost:${process.env.PORT ?? 3000}`,
+  email: {
+    smtpUrl: process.env.SMTP_URL ?? '',              // ex.: smtps://usuario:senha@smtp.empresa.com.br:465
+    remetente: process.env.EMAIL_REMETENTE ?? 'Viva Bem <nao-responda@empresa.com.br>',
+  },
+  whatsapp: {
+    // Envio pela API do Twilio (WhatsApp Business). Sem as três variáveis, o canal fica desligado.
+    accountSid: process.env.TWILIO_ACCOUNT_SID ?? '',
+    authToken: process.env.TWILIO_AUTH_TOKEN ?? '',
+    remetente: process.env.TWILIO_WHATSAPP_FROM ?? '',  // ex.: whatsapp:+5511999999999
+  },
+  backup: { dir: process.env.BACKUP_DIR ?? '', diasRetencao: Number(process.env.BACKUP_DIAS ?? 14) },
 };

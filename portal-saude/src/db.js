@@ -184,6 +184,74 @@ CREATE TABLE IF NOT EXISTS resgates (
 
 db.exec(SCHEMA);
 
+// Migrações numeradas: cada uma roda uma única vez, controlada por PRAGMA user_version.
+const MIGRACOES = [
+  // 1: lojas, preferências de contato, notificações, pausa ativa e nova origem de pontos
+  `CREATE TABLE IF NOT EXISTS lojas (
+     id          INTEGER PRIMARY KEY,
+     nome        TEXT NOT NULL UNIQUE COLLATE NOCASE,
+     cidade      TEXT,
+     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   ALTER TABLE usuarios ADD COLUMN loja_id INTEGER REFERENCES lojas(id);
+   ALTER TABLE usuarios ADD COLUMN aceita_email INTEGER NOT NULL DEFAULT 0;
+   ALTER TABLE usuarios ADD COLUMN aceita_whatsapp INTEGER NOT NULL DEFAULT 0;
+
+   CREATE TABLE pontos_lancamentos_novo (
+     id            INTEGER PRIMARY KEY,
+     usuario_id    INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+     pontos        INTEGER NOT NULL,
+     origem        TEXT NOT NULL CHECK (origem IN ('desafio','pausa_ativa','resgate','estorno','ajuste')),
+     referencia_id INTEGER,
+     descricao     TEXT NOT NULL,
+     created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+     UNIQUE (origem, referencia_id)
+   );
+   INSERT INTO pontos_lancamentos_novo SELECT * FROM pontos_lancamentos;
+   DROP TABLE pontos_lancamentos;
+   ALTER TABLE pontos_lancamentos_novo RENAME TO pontos_lancamentos;
+   CREATE INDEX IF NOT EXISTS idx_pontos_usuario ON pontos_lancamentos(usuario_id);
+
+   CREATE TABLE IF NOT EXISTS notificacoes (
+     id             INTEGER PRIMARY KEY,
+     usuario_id     INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+     tipo           TEXT NOT NULL,
+     referencia_id  INTEGER,
+     titulo         TEXT NOT NULL,
+     mensagem       TEXT NOT NULL,
+     link           TEXT,
+     lida           INTEGER NOT NULL DEFAULT 0,
+     canais         TEXT NOT NULL DEFAULT '',     -- canais externos que receberam (email, whatsapp)
+     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+     UNIQUE (usuario_id, tipo, referencia_id)
+   );
+   CREATE INDEX IF NOT EXISTS idx_notificacoes_usuario ON notificacoes(usuario_id, lida);
+
+   CREATE TABLE IF NOT EXISTS pausas_ativas (
+     id            INTEGER PRIMARY KEY,
+     usuario_id    INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+     duracao_seg   INTEGER NOT NULL,
+     iniciada_em   TEXT NOT NULL DEFAULT (datetime('now')),
+     concluida_em  TEXT
+   );
+   CREATE INDEX IF NOT EXISTS idx_pausas_usuario ON pausas_ativas(usuario_id, iniciada_em);
+
+   ALTER TABLE resgates ADD COLUMN observacao TEXT;`,
+];
+
+const versao = db.prepare('PRAGMA user_version').get().user_version;
+MIGRACOES.slice(versao).forEach((sql, i) => {
+  db.exec('BEGIN');
+  try {
+    db.exec(sql);
+    db.exec(`PRAGMA user_version = ${versao + i + 1}`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+});
+
 /** Executa fn dentro de uma transação. */
 export function transaction(fn) {
   db.exec('BEGIN');

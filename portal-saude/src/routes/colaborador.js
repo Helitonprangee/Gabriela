@@ -9,6 +9,10 @@ import { ATIVIDADES, RESTRICOES, calcularIdade, gerarDesafios } from '../service
 import { extrato, saldo } from '../services/pontos.js';
 import { TIPOS_ACEITOS, validarComprovante } from '../services/validacao.js';
 import { videoDoModelo } from '../services/videos.js';
+import { listarNotificacoes, marcarLidas, telefoneE164 } from '../services/notificacoes.js';
+import { concluirPausa, iniciarPausa, pausaDoColaborador } from '../services/pausa.js';
+import { ranking } from '../services/ranking.js';
+import { ErroResgate, catalogo, resgatar, resgatesDoUsuario } from '../services/recompensas.js';
 
 export const rotasColaborador = Router();
 
@@ -29,12 +33,12 @@ function tipoReal(buf) {
   return null;
 }
 
-const CAMPOS_PERFIL = ['email', 'telefone', 'altura_cm', 'peso_kg', 'nivel_atividade', 'atividades_preferidas', 'restricoes', 'observacoes_saude'];
+const CAMPOS_PERFIL = ['email', 'telefone', 'altura_cm', 'peso_kg', 'nivel_atividade', 'atividades_preferidas', 'restricoes', 'observacoes_saude', 'aceita_email', 'aceita_whatsapp'];
 
 function perfilDe(usuarioId) {
   const u = one(
-    `SELECT u.*, s.nome AS setor, c.nome AS cargo FROM usuarios u
-     LEFT JOIN setores s ON s.id = u.setor_id LEFT JOIN cargos c ON c.id = u.cargo_id WHERE u.id = ?`,
+    `SELECT u.*, s.nome AS setor, c.nome AS cargo, l.nome AS loja FROM usuarios u
+     LEFT JOIN setores s ON s.id = u.setor_id LEFT JOIN cargos c ON c.id = u.cargo_id LEFT JOIN lojas l ON l.id = u.loja_id WHERE u.id = ?`,
     usuarioId,
   );
   const { senha_hash: _, ...resto } = u;
@@ -66,6 +70,12 @@ rotasColaborador.put('/perfil', (req, res) => {
       const itens = Array.isArray(valores[campo]) ? valores[campo] : String(valores[campo] ?? '').split(',');
       valores[campo] = itens.map((s) => String(s).trim()).filter((s) => permitidos.includes(s)).join(',');
     }
+  }
+  for (const campo of ['aceita_email', 'aceita_whatsapp']) if (campo in valores) valores[campo] = valores[campo] === true || valores[campo] === 'true' ? 1 : 0;
+  const atual = one('SELECT email, telefone FROM usuarios WHERE id = ?', req.usuario.id);
+  if (valores.aceita_email && !(valores.email ?? atual.email)) return res.status(400).json({ erro: 'Informe o e-mail para receber lembretes por e-mail.' });
+  if (valores.aceita_whatsapp && !telefoneE164(valores.telefone ?? atual.telefone)) {
+    return res.status(400).json({ erro: 'Informe um celular com DDD para receber lembretes por WhatsApp.' });
   }
   const campos = Object.keys(valores);
   if (campos.length) {
@@ -158,8 +168,45 @@ rotasColaborador.get('/comprovantes/:id/arquivo', (req, res) => {
   res.type(c.mime).sendFile(c.arquivo);
 });
 
-// Fase 2: catálogo de recompensas. Fica desligado até FEATURE_RECOMPENSAS=true.
-rotasColaborador.get('/recompensas', (req, res) => {
-  if (!config.recompensasHabilitadas) return res.status(404).json({ erro: 'Recompensas disponíveis em breve.' });
-  res.json(all('SELECT r.*, p.nome AS parceiro FROM recompensas r LEFT JOIN parceiros p ON p.id = r.parceiro_id WHERE r.ativo = 1'));
+// ---------------- Recompensas ----------------
+
+function exigirRecompensas(_req, res, next) {
+  if (!config.recompensasHabilitadas) return res.status(404).json({ erro: 'Recompensas indisponíveis.' });
+  next();
+}
+
+rotasColaborador.get('/recompensas', exigirRecompensas, (req, res) => {
+  res.json({ saldo: saldo(req.usuario.id), itens: catalogo(), resgates: resgatesDoUsuario(req.usuario.id) });
+});
+
+rotasColaborador.post('/recompensas/:id/resgatar', exigirRecompensas, (req, res) => {
+  try {
+    const r = resgatar(req.usuario.id, Number(req.params.id));
+    res.status(201).json({ ...r, saldo: saldo(req.usuario.id) });
+  } catch (err) {
+    if (err instanceof ErroResgate) return res.status(400).json({ erro: err.message });
+    throw err;
+  }
+});
+
+// ---------------- Avisos ----------------
+
+rotasColaborador.get('/notificacoes', (req, res) => res.json(listarNotificacoes(req.usuario.id)));
+rotasColaborador.post('/notificacoes/lidas', (req, res) => { marcarLidas(req.usuario.id); res.json({ ok: true }); });
+
+// ---------------- Pausa ativa ----------------
+
+rotasColaborador.get('/pausa-ativa', (req, res) => res.json(pausaDoColaborador(req.usuario.id)));
+rotasColaborador.post('/pausa-ativa/iniciar', (req, res) => res.status(201).json({ id: iniciarPausa(req.usuario.id) }));
+rotasColaborador.post('/pausa-ativa/:id/concluir', (req, res) => {
+  const r = concluirPausa(req.usuario.id, Number(req.params.id));
+  if (r.erro) return res.status(400).json(r);
+  res.json({ ...r, saldo: saldo(req.usuario.id) });
+});
+
+// ---------------- Ranking ----------------
+
+rotasColaborador.get('/ranking', (req, res) => {
+  const r = ranking(req.query.mes);
+  res.json({ ...r, minha_loja: req.usuario.loja_id, meu_setor: req.usuario.setor_id });
 });

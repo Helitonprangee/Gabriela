@@ -216,3 +216,23 @@ svg .olho { fill: #fff; }
   .palco svg { height: auto; aspect-ratio: 240 / 222; }
   .palco .selo { display: none; }
 }
+
+/* sino de avisos */
+.sino { position: relative; background: none; border: none; padding: .2rem .35rem; font-size: 1.15rem; line-height: 1; color: inherit; }
+.sino:hover { background: var(--primaria-clara); }
+.sino .contador { position: absolute; top: -4px; right: -6px; background: var(--erro); color: #fff; border-radius: 999px; font-size: .68rem; font-weight: 700; padding: 0 .35rem; line-height: 1.4; }
+.avisos { list-style: none; margin: .75rem 0 0; padding: 0; }
+.avisos li a, .avisos li > div { display: flex; flex-direction: column; gap: .15rem; padding: .7rem .8rem; border-radius: 10px; color: var(--texto); text-decoration: none; }
+.avisos li a:hover { background: #f3f7f5; }
+.avisos li.nova a, .avisos li.nova > div { background: var(--primaria-clara); }
+.avisos li + li { margin-top: .35rem; }
+
+/* ranking */
+table.ranking .posicao { font-size: 1.3rem; width: 2.5rem; text-align: center; }
+table.ranking tr.meu td { background: var(--primaria-clara); }
+
+/* recompensas */
+.recompensa { display: flex; flex-direction: column; gap: .5rem; }
+.recompensa h2 { margin: .25rem 0 0; }
+.recompensa button { margin-top: auto; }
+.icone-recompensa { font-size: 2.2rem; line-height: 1; }
