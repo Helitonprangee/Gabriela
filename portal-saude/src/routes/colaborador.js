@@ -8,6 +8,7 @@ import { config } from '../config.js';
 import { ATIVIDADES, RESTRICOES, calcularIdade, gerarDesafios } from '../services/desafios.js';
 import { extrato, saldo } from '../services/pontos.js';
 import { TIPOS_ACEITOS, validarComprovante } from '../services/validacao.js';
+import { videoDoModelo } from '../services/videos.js';
 
 export const rotasColaborador = Router();
 
@@ -105,6 +106,13 @@ rotasColaborador.get('/painel', (req, res) => {
     ...resumo,
     desafios: ativos.map((d) => ({ ...semCriterios(d), comprovantes: porDesafio[d.id] ?? [] })),
   });
+});
+
+rotasColaborador.get('/desafios/:id', (req, res, next) => {
+  if (!/^\d+$/.test(req.params.id)) return next();
+  const d = one('SELECT * FROM desafios WHERE id = ? AND usuario_id = ?', Number(req.params.id), req.usuario.id);
+  if (!d) return res.status(404).json({ erro: 'Desafio não encontrado.' });
+  res.json({ ...semCriterios(d), comprovantes: comprovantesDe([d.id])[d.id] ?? [], video: videoDoModelo(d.modelo_codigo) });
 });
 
 rotasColaborador.get('/desafios/concluidos', (req, res) => {

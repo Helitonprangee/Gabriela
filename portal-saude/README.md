@@ -55,6 +55,12 @@ O catálogo de saúde preventiva inclui mamografia, preventivo do colo do útero
 
 O comprovante fica **aprovado** ou **recusado**, sempre com o motivo. Se for recusado, o colaborador pode enviar outro enquanto o prazo estiver aberto. Se a IA não estiver configurada (sem `ANTHROPIC_API_KEY`) ou falhar, o comprovante fica **em análise**, e o RH aprova ou recusa manualmente na aba Comprovantes, onde também pode rodar a IA de novo.
 
+### Tela "Como fazer" com vídeo e treino guiado
+Cada desafio tem uma tela própria, aberta pelo botão **"Ver como fazer"** no cartão do desafio.
+- **Atividade física:** a tela mostra uma **demonstração animada** de cada movimento (um boneco que executa o exercício), num **treino guiado**. O treino tem cronômetro, avança sozinho para o próximo exercício, emite um sinal sonoro na troca e tem **narração em voz** (pt-BR) das instruções. Também mostra o passo a passo com miniaturas, dicas e cuidados. A biblioteca tem 24 movimentos (alongamentos de punho e pescoço, prancha, ponte, perdigueiro, posturas de yoga, agachamento, corrida, pedalada, natação…) e fica em `public/exercicios.js`.
+- **Vídeo real:** na aba **Vídeos**, o RH cola um link do YouTube, do Vimeo ou de um arquivo .mp4 para cada desafio, por exemplo um vídeo gravado com o fisioterapeuta da empresa. Com vídeo cadastrado, a tela mostra as abas "Vídeo explicativo" e "Treino guiado". Os vídeos do YouTube usam o domínio `youtube-nocookie.com`.
+- **Saúde preventiva:** a tela mostra o passo a passo para agendar e fazer o exame, o preparo específico (jejum, cuidados antes da mamografia etc.) e o envio do comprovante.
+
 ### Pontos
 Os pontos ficam num livro-razão (`pontos_lancamentos`): o saldo é sempre a soma dos lançamentos, e uma restrição única impede que o mesmo desafio pontue duas vezes. O colaborador vê o saldo, o histórico e os desafios concluídos.
 

@@ -129,6 +129,28 @@ test('painel do RH mostra engajamento por setor e por colaborador', async () => 
   assert.equal(p.recusados[0].motivo, 'Nome não aparece no print.');
 });
 
+test('tela do exercício: detalhe do desafio e vídeo cadastrado pelo RH', async () => {
+  const painel = (await colab('GET', '/api/painel')).dados;
+  const d = painel.desafios.find((x) => x.categoria === 'atividade_fisica');
+  const sem = (await colab('GET', `/api/desafios/${d.id}`)).dados;
+  assert.equal(sem.titulo, d.titulo);
+  assert.equal(sem.video, null);
+  assert.equal(sem.criterios, undefined, 'critérios de validação não vão para o colaborador');
+
+  assert.equal((await rh('PUT', `/api/rh/videos/${d.modelo_codigo}`, { url: 'https://exemplo.com/x' })).status, 400);
+  assert.equal((await rh('PUT', `/api/rh/videos/${d.modelo_codigo}`, { url: 'https://youtu.be/abcdefghijk', titulo: 'Com a fisioterapeuta' })).status, 200);
+  const com = (await colab('GET', `/api/desafios/${d.id}`)).dados;
+  assert.deepEqual(com.video, { tipo: 'iframe', src: 'https://www.youtube-nocookie.com/embed/abcdefghijk?rel=0', titulo: 'Com a fisioterapeuta', url: 'https://youtu.be/abcdefghijk' });
+  assert.ok((await rh('GET', '/api/rh/videos')).dados.find((m) => m.codigo === d.modelo_codigo).video);
+  assert.equal((await colab('PUT', `/api/rh/videos/${d.modelo_codigo}`, { url: '' })).status, 403);
+
+  // desafio de outra pessoa não aparece
+  const outro = cliente();
+  await outro('POST', '/api/auth/login', { matricula: '5003', senha: '1234' });
+  await outro('POST', '/api/auth/trocar-senha', { senha_atual: '1234', nova_senha: 'lucas2026' });
+  assert.equal((await outro('GET', `/api/desafios/${d.id}`)).status, 404);
+});
+
 test('recompensas (fase 2) ficam desligadas', async () => {
   assert.equal((await colab('GET', '/api/recompensas')).status, 404);
 });

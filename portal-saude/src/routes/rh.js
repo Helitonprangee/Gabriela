@@ -6,6 +6,8 @@ import { config } from '../config.js';
 import { NIVEIS_RISCO, REGIOES, gerarDesafios } from '../services/desafios.js';
 import { COLUNAS, converterData, converterSexo, lerPlanilha, validarLinhas } from '../services/importacao.js';
 import { registrarResultado, validarComprovante } from '../services/validacao.js';
+import { MODELOS } from '../services/catalogo.js';
+import { converterVideo, listarVideos } from '../services/videos.js';
 
 export const rotasRH = Router();
 const uploadPlanilha = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
@@ -257,6 +259,34 @@ rotasRH.post('/importacao/confirmar', uploadPlanilha.single('planilha'), async (
     }
   });
   res.json({ criados, atualizados, ignorados: resultado.linhas.filter((l) => !l.valido), resumo: resumir(resultado.linhas) });
+});
+
+// ---------------- Vídeos explicativos ----------------
+
+rotasRH.get('/videos', (_req, res) => {
+  const videos = new Map(listarVideos().map((v) => [v.modelo_codigo, v]));
+  res.json(MODELOS.map((m) => ({
+    codigo: m.codigo, titulo: m.titulo, categoria: m.categoria,
+    video: videos.get(m.codigo) ? { ...videos.get(m.codigo), exibicao: converterVideo(videos.get(m.codigo).url) } : null,
+  })));
+});
+
+rotasRH.put('/videos/:codigo', (req, res) => {
+  const codigo = req.params.codigo;
+  if (!MODELOS.some((m) => m.codigo === codigo)) return erro(res, 'Desafio não encontrado.', 404);
+  const url = texto(req.body?.url);
+  if (!url) {
+    run('DELETE FROM modelo_videos WHERE modelo_codigo = ?', codigo);
+    return res.json({ ok: true, removido: true });
+  }
+  const exibicao = converterVideo(url);
+  if (!exibicao) return erro(res, 'Link não reconhecido. Use um link https do YouTube, do Vimeo ou de um arquivo .mp4/.webm.');
+  run(
+    `INSERT INTO modelo_videos (modelo_codigo, url, titulo) VALUES (?, ?, ?)
+     ON CONFLICT (modelo_codigo) DO UPDATE SET url = excluded.url, titulo = excluded.titulo, atualizado_em = datetime('now')`,
+    codigo, url, texto(req.body?.titulo) || null,
+  );
+  res.json({ ok: true, exibicao });
 });
 
 // ---------------- Desafios ----------------

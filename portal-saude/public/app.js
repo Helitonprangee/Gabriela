@@ -1,4 +1,5 @@
 // Portal Viva Bem: SPA sem dependências. Todo HTML dinâmico passa por esc().
+import { MOVIMENTOS, cuidadosFisicos, desenhar, guiaDe, instanteTipico, lembreteApp, preparoPreventivo } from './exercicios.js';
 
 const $ = (sel, raiz = document) => raiz.querySelector(sel);
 const $$ = (sel, raiz = document) => [...raiz.querySelectorAll(sel)];
@@ -80,13 +81,14 @@ function abrirDialogo(html, aoMontar) {
 
 const MENU = {
   colaborador: [['#/inicio', 'Meus desafios'], ['#/pontos', 'Meus pontos'], ['#/concluidos', 'Concluídos'], ['#/perfil', 'Meu perfil'], ['#/recompensas', 'Recompensas', true]],
-  rh: [['#/rh/painel', 'Painel'], ['#/rh/colaboradores', 'Colaboradores'], ['#/rh/estrutura', 'Setores e cargos'], ['#/rh/comprovantes', 'Comprovantes']],
+  rh: [['#/rh/painel', 'Painel'], ['#/rh/colaboradores', 'Colaboradores'], ['#/rh/estrutura', 'Setores e cargos'], ['#/rh/comprovantes', 'Comprovantes'], ['#/rh/videos', 'Vídeos']],
 };
 
 const ROTAS = {
   '#/login': telaLogin,
   '#/trocar-senha': telaTrocarSenha,
   '#/inicio': telaInicio,
+  '#/desafio': telaDesafio,
   '#/pontos': telaPontos,
   '#/concluidos': telaConcluidos,
   '#/perfil': telaPerfil,
@@ -95,6 +97,7 @@ const ROTAS = {
   '#/rh/colaboradores': telaColaboradores,
   '#/rh/estrutura': telaEstrutura,
   '#/rh/comprovantes': telaComprovantes,
+  '#/rh/videos': telaVideos,
 };
 
 async function navegar() {
@@ -103,9 +106,11 @@ async function navegar() {
     try { sessao = (await api('GET', '/api/auth/sessao')).usuario; } catch { sessao = null; }
   }
   let rota = location.hash.split('?')[0] || '#/';
+  // rotas com parâmetro: #/desafio/12
+  const [, base, param] = rota.match(/^(#\/desafio)\/(\d+)$/) ?? [null, rota, null];
   if (!sessao) rota = '#/login';
   else if (sessao.deve_trocar_senha) rota = '#/trocar-senha';
-  else if (!ROTAS[rota] || rota === '#/login' || rota === '#/trocar-senha'
+  else if (!ROTAS[base] || (base === '#/desafio' && !param) || rota === '#/login' || rota === '#/trocar-senha'
     || (rota.startsWith('#/rh') !== (sessao.papel === 'rh'))) rota = sessao.papel === 'rh' ? '#/rh/painel' : '#/inicio';
   if (location.hash.split('?')[0] !== rota) { location.hash = rota; return; }
 
@@ -114,10 +119,10 @@ async function navegar() {
   if (logado) {
     $('#nome-usuario').textContent = sessao.nome;
     $('#menu').innerHTML = MENU[sessao.papel].map(([href, texto, fase2]) =>
-      `<a href="${href}" class="${rota === href ? 'ativo' : ''}">${esc(texto)}${fase2 && !sessao.recursos?.recompensas ? '<span class="em-breve">em breve</span>' : ''}</a>`).join('');
+      `<a href="${href}" class="${rota === href || (base === '#/desafio' && href === '#/inicio') ? 'ativo' : ''}">${esc(texto)}${fase2 && !sessao.recursos?.recompensas ? '<span class="em-breve">em breve</span>' : ''}</a>`).join('');
   }
   app.innerHTML = '<p class="suave">Carregando…</p>';
-  try { await ROTAS[rota](); }
+  try { await ROTAS[ROTAS[rota] ? rota : base](param); }
   catch (err) { app.innerHTML = msg(err.message); }
   window.scrollTo(0, 0);
 }
@@ -200,7 +205,13 @@ function cartaoDesafio(d) {
         <div class="linha entre"><strong>Último comprovante</strong>${etiqueta(ultimo.status)}</div>
         ${ultimo.status === 'em_analise' && !ultimo.motivo ? '<span class="suave">Analisando o seu comprovante…</span>' : `<span>${esc(ultimo.motivo ?? '')}</span>`}
       </div>` : ''}
-    ${podeEnviar ? `
+    <a class="botao secundario como-fazer" href="#/desafio/${d.id}">${d.categoria === 'atividade_fisica' ? '▶ Ver como fazer (vídeo e treino guiado)' : 'Ver passo a passo'}</a>
+    ${podeEnviar ? formComprovante(d, ultimo) : ''}
+  </article>`;
+}
+
+function formComprovante(d, ultimo = d.comprovantes[0]) {
+  return `
     <form class="f-comprovante" data-id="${d.id}">
       <div class="saida"></div>
       <label for="arq-${d.id}">${ultimo?.status === 'recusado' ? 'Enviar novo comprovante' : 'Enviar comprovante'}</label>
@@ -209,8 +220,15 @@ function cartaoDesafio(d) {
         <button type="submit">Enviar</button>
       </div>
       <span class="ajuda">Print (JPG, PNG) ou PDF de até 10 MB.</span>
-    </form>` : ''}
-  </article>`;
+    </form>`;
+}
+
+function ligarComprovantes(depois) {
+  $$('.f-comprovante').forEach((form) => aoEnviar(form, async (f) => {
+    await api('POST', `/api/desafios/${form.dataset.id}/comprovantes`, f);
+    avisar('Comprovante enviado! A validação leva alguns instantes.');
+    await depois();
+  }));
 }
 
 async function telaInicio() {
@@ -226,11 +244,7 @@ async function telaInicio() {
       : '<div class="card vazio">Você está em dia! Novos desafios aparecem aqui assim que os atuais forem concluídos.</div>'}
     <p class="ajuda" style="margin-top:1.5rem">As sugestões de saúde preventiva seguem orientações gerais e não substituem a avaliação do seu médico. Respeite seus limites; se sentir dor, pare a atividade.</p>`;
 
-  $$('.f-comprovante').forEach((form) => aoEnviar(form, async (f) => {
-    await api('POST', `/api/desafios/${form.dataset.id}/comprovantes`, f);
-    avisar('Comprovante enviado! A validação leva alguns instantes.');
-    await telaInicio();
-  }));
+  ligarComprovantes(telaInicio);
   // Enquanto houver comprovante em análise, atualiza a tela periodicamente.
   if (ativos.some((d) => d.status === 'em_analise')) {
     temporizador = setTimeout(() => { if (location.hash === '#/inicio' && !document.querySelector('dialog')) telaInicio().catch(() => {}); }, 5000);
@@ -722,4 +736,275 @@ async function verComprovante(id, aoAlterar) {
       catch (err) { $('.saida', form).innerHTML = msg(err.message); e.target.disabled = false; }
     });
   });
+}
+
+// ====================== Tela do exercício ======================
+
+const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const duracaoTexto = (s) => (s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
+
+function midiaVideo(v) {
+  return v.tipo === 'iframe'
+    ? `<iframe src="${esc(v.src)}" title="${esc(v.titulo ?? 'Vídeo explicativo')}" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="lazy"></iframe>`
+    : `<video src="${esc(v.src)}" controls preload="metadata" playsinline></video>`;
+}
+
+async function telaDesafio(id) {
+  const d = await api('GET', `/api/desafios/${id}`);
+  const ultimo = d.comprovantes[0];
+  const guia = d.categoria === 'atividade_fisica' ? guiaDe(d.modelo_codigo) : null;
+  const dias = diasAte(d.prazo);
+  const statusComprovante = ultimo ? `<div class="comprovante ${esc(ultimo.status)}" style="margin-bottom:.75rem">
+      <div class="linha entre"><strong>Último comprovante</strong>${etiqueta(ultimo.status)}</div>
+      <span>${esc(ultimo.motivo ?? (ultimo.status === 'em_analise' ? 'Analisando o seu comprovante…' : ''))}</span></div>` : '';
+  const comprovar = `
+    <section class="card">
+      <h2>Comprovar o desafio</h2>
+      <p class="pequeno">${esc(d.como_comprovar)}</p>
+      ${statusComprovante}
+      ${d.status === 'ativo' ? formComprovante(d, ultimo)
+        : d.status === 'concluido' ? msg(`Desafio concluído! +${d.pontos} pontos no seu saldo.`, 'ok')
+          : d.status === 'em_analise' ? '' : msg('O prazo deste desafio terminou.', 'alerta')}
+    </section>`;
+
+  const cabecalho = `
+    <a class="voltar" href="#/inicio">← Meus desafios</a>
+    <div class="cabecalho-desafio">
+      <div><h1>${esc(d.titulo)}</h1>
+        <div class="info">${etiqueta(d.categoria)} ${d.status !== 'ativo' ? etiqueta(d.status) : ''}
+          <span class="suave pequeno">Prazo: ${dataBR(d.prazo)}${d.status === 'ativo' ? ` · ${dias <= 0 ? 'último dia' : `${dias} dia(s) restante(s)`}` : ''}</span></div></div>
+      <span class="pontos" style="font-size:1.1rem">+${d.pontos} pts</span>
+    </div>`;
+
+  if (!guia) {
+    const prep = preparoPreventivo(d.modelo_codigo);
+    app.innerHTML = `${cabecalho}
+      <div class="layout-exercicio">
+        <div class="pilha">
+          ${d.video ? `<section class="card player"><div class="palco-video">${midiaVideo(d.video)}</div>
+            ${d.video.titulo ? `<p class="instrucao-atual" style="padding-top:.7rem">${esc(d.video.titulo)}</p>` : ''}</section>` : ''}
+          <section class="card"><h2>Como fazer</h2><p>${esc(d.descricao)}</p>
+            <ol class="lista-num">${prep.passos.map((p) => `<li>${esc(p)}</li>`).join('')}</ol></section>
+          ${prep.extras.length ? `<section class="card"><h2>Preparo para este exame</h2><ul class="lista-check">${prep.extras.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></section>` : ''}
+        </div>
+        <div class="pilha">
+          <div class="motivo">${esc(d.motivo)}</div>
+          ${comprovar}
+          <p class="ajuda">Esta orientação é geral e não substitui a avaliação do seu médico.</p>
+        </div>
+      </div>`;
+    ligarComprovantes(() => telaDesafio(id));
+    return;
+  }
+
+  const rodadas = guia.repeticoes ?? 1;
+  const sequencia = Array.from({ length: rodadas }, (_, r) => guia.passos.map((p, i) => ({ ...p, rodada: r + 1, indice: i }))).flat();
+  const total = sequencia.reduce((s, p) => s + p.tempo, 0);
+  let faseAtual = null;
+  const itens = guia.passos.map((p, i) => {
+    const mov = MOVIMENTOS[p.mov];
+    const fase = p.fase && p.fase !== faseAtual ? `<li class="fase">${esc(p.fase)}</li>` : '';
+    if (p.fase) faseAtual = p.fase;
+    return `${fase}<li data-passo="${i}" tabindex="0" role="button" aria-label="Ir para ${esc(mov.nome)}">
+      <svg class="mini" viewBox="0 25 200 165" data-mov="${p.mov}" aria-hidden="true"></svg>
+      <div><div class="nome">${esc(mov.nome)}</div>${p.nota ? `<div class="ajuda">${esc(p.nota)}</div>` : ''}</div>
+      <span class="tempo">${duracaoTexto(p.tempo)}</span></li>`;
+  }).join('');
+
+  app.innerHTML = `${cabecalho}
+    <div class="layout-exercicio">
+      <div class="pilha">
+        <section class="card player">
+          ${d.video ? `<div class="abas" style="margin:0;padding:0 .6rem" role="tablist">
+              <button class="ativo" data-modo="video" role="tab">Vídeo explicativo</button>
+              <button data-modo="treino" role="tab">Treino guiado</button></div>
+            <div id="modo-video"><div class="palco-video">${midiaVideo(d.video)}</div>
+              ${d.video.titulo ? `<p class="instrucao-atual" style="padding-top:.7rem">${esc(d.video.titulo)}</p>` : ''}</div>` : ''}
+          <div id="modo-treino" ${d.video ? 'hidden' : ''}>
+            <div class="palco">
+              <svg id="cena" viewBox="-20 -28 240 222" role="img" aria-label="Demonstração animada do exercício"></svg>
+              <div class="legenda">
+                <div class="etapa" aria-live="polite"><span id="p-contagem"></span><strong id="p-nome"></strong></div>
+                <div class="relogio pausado" id="p-relogio">00:00</div>
+              </div>
+              <span class="selo">Demonstração animada · repita o movimento do boneco</span>
+              <div class="anuncio" id="p-anuncio" hidden></div>
+            </div>
+            <div class="progresso"><span id="p-barra" style="width:0%"></span></div>
+            <div class="controles">
+              <div class="grupo">
+                <button class="icone secundario" id="p-ant" title="Exercício anterior" aria-label="Exercício anterior">⏮</button>
+                <button class="icone play" id="p-play" title="Iniciar treino" aria-label="Iniciar treino">▶</button>
+                <button class="icone secundario" id="p-prox" title="Próximo exercício" aria-label="Próximo exercício">⏭</button>
+              </div>
+              <div class="grupo pequeno">
+                <label class="opcoes" style="font-weight:400"><input type="checkbox" id="p-voz" checked> Narração</label>
+                <span class="suave" id="p-total">Total ${mmss(total)}</span>
+              </div>
+            </div>
+            <div class="instrucao-atual"><p id="p-instrucao"></p><p class="ajuda" id="p-nota"></p></div>
+          </div>
+        </section>
+        <section class="card">
+          <h2>Antes de começar</h2>
+          <p>${esc(guia.resumo)}</p>
+          <div class="motivo">📱 ${esc(lembreteApp)}</div>
+        </section>
+        ${comprovar}
+      </div>
+      <div class="pilha">
+        <section class="card">
+          <div class="linha entre"><h2>Passo a passo</h2>${rodadas > 1 ? `<span class="etiqueta">repetir ${rodadas}×</span>` : ''}</div>
+          <ol class="passos" id="lista-passos">${itens}</ol>
+        </section>
+        <section class="card"><h2>Dicas</h2><ul class="lista-check">${guia.dicas.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>
+        <section class="aviso-cuidado"><h3>Cuidados</h3><ul class="lista-check">${cuidadosFisicos.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></section>
+        <div class="motivo">${esc(d.motivo)}</div>
+      </div>
+    </div>`;
+
+  $$('svg.mini').forEach((svg) => desenhar(svg, MOVIMENTOS[svg.dataset.mov], instanteTipico(MOVIMENTOS[svg.dataset.mov])));
+  $$('[data-modo]').forEach((b) => b.addEventListener('click', () => {
+    $$('[data-modo]').forEach((x) => x.classList.toggle('ativo', x === b));
+    $('#modo-video').hidden = b.dataset.modo !== 'video';
+    $('#modo-treino').hidden = b.dataset.modo !== 'treino';
+    // pausa o vídeo ao trocar de aba
+    if (b.dataset.modo === 'treino') { const v = $('#modo-video video'); v?.pause(); const f = $('#modo-video iframe'); if (f) f.src = f.src; }
+  }));
+  ligarComprovantes(() => telaDesafio(id));
+  iniciarPlayer(sequencia, total, rodadas);
+}
+
+/** Treino guiado: anima cada movimento, conta o tempo e narra as instruções. */
+function iniciarPlayer(sequencia, total, rodadas) {
+  const cena = $('#cena');
+  const st = { i: 0, restante: sequencia[0].tempo, rodando: false, inicio: performance.now(), ultimo: performance.now(), fim: false };
+  const voz = 'speechSynthesis' in window ? window.speechSynthesis : null;
+  if (!voz) $('#p-voz').closest('label').hidden = true;
+  let audio;
+
+  const falar = (texto) => {
+    if (!voz || !$('#p-voz').checked) return;
+    voz.cancel();
+    const u = new SpeechSynthesisUtterance(texto);
+    u.lang = 'pt-BR';
+    u.rate = 1.02;
+    const v = voz.getVoices().find((x) => x.lang?.toLowerCase().startsWith('pt'));
+    if (v) u.voice = v;
+    voz.speak(u);
+  };
+  const bip = () => {
+    try {
+      audio ??= new AudioContext();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = 880; g.gain.setValueAtTime(0.15, audio.currentTime); g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.25);
+      o.connect(g).connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.25);
+    } catch { /* sem áudio */ }
+  };
+
+  const passo = () => sequencia[st.i];
+  const decorrido = () => sequencia.slice(0, st.i).reduce((s, p) => s + p.tempo, 0) + (passo().tempo - st.restante);
+
+  function mostrar(anunciar) {
+    const p = passo(), mov = MOVIMENTOS[p.mov];
+    $('#p-nome').textContent = mov.nome;
+    $('#p-contagem').textContent = `Exercício ${p.indice + 1} de ${sequencia.length / rodadas}${rodadas > 1 ? ` · rodada ${p.rodada} de ${rodadas}` : ''}`;
+    $('#p-instrucao').textContent = mov.instrucao;
+    $('#p-nota').textContent = p.nota ? `Duração: ${duracaoTexto(p.tempo)} (${p.nota})` : `Duração: ${duracaoTexto(p.tempo)}`;
+    $$('#lista-passos li[data-passo]').forEach((li) => {
+      const i = Number(li.dataset.passo);
+      li.classList.toggle('atual', i === p.indice);
+      li.classList.toggle('feito', p.rodada === rodadas ? i < p.indice : false);
+    });
+    st.inicio = performance.now();
+    if (anunciar) falar(`${mov.nome}. ${p.nota ? `${p.nota}. ` : ''}${mov.instrucao}`);
+    atualizarRelogio();
+  }
+  function atualizarRelogio() {
+    $('#p-relogio').textContent = mmss(Math.ceil(st.restante));
+    $('#p-relogio').classList.toggle('pausado', !st.rodando);
+    $('#p-barra').style.width = `${Math.min(100, (decorrido() / total) * 100)}%`;
+    $('#p-total').textContent = `Restam ${mmss(Math.max(0, total - decorrido()))}`;
+    $('#p-play').textContent = st.rodando ? '⏸' : '▶';
+    $('#p-play').setAttribute('aria-label', st.rodando ? 'Pausar' : 'Continuar');
+  }
+  function irPara(i, anunciar = st.rodando) {
+    st.i = Math.max(0, Math.min(sequencia.length - 1, i));
+    st.restante = passo().tempo;
+    st.fim = false;
+    $('#p-anuncio').hidden = true;
+    mostrar(anunciar);
+  }
+  function concluir() {
+    st.rodando = false;
+    st.fim = true;
+    st.restante = 0;
+    $('#p-anuncio').innerHTML = 'Treino concluído! 🎉<br><span style="font-size:1rem;font-weight:500">Salve a atividade no app e envie o print abaixo.</span>';
+    $('#p-anuncio').hidden = false;
+    falar('Parabéns, treino concluído! Salve a atividade no aplicativo e envie o print para ganhar seus pontos.');
+    atualizarRelogio();
+  }
+
+  $('#p-play').addEventListener('click', () => {
+    if (st.fim) irPara(0, false);
+    st.rodando = !st.rodando;
+    st.ultimo = performance.now();
+    if (st.rodando) { bip(); falar(`${MOVIMENTOS[passo().mov].nome}. ${MOVIMENTOS[passo().mov].instrucao}`); } else voz?.cancel();
+    atualizarRelogio();
+  });
+  $('#p-prox').addEventListener('click', () => (st.i < sequencia.length - 1 ? irPara(st.i + 1) : concluir()));
+  $('#p-ant').addEventListener('click', () => irPara(st.restante < passo().tempo - 3 ? st.i : st.i - 1));
+  $('#lista-passos').addEventListener('click', (e) => {
+    const li = e.target.closest('li[data-passo]');
+    if (!li) return;
+    const rodadaAtual = passo().rodada;
+    irPara(sequencia.findIndex((p) => p.rodada === rodadaAtual && p.indice === Number(li.dataset.passo)));
+    $('#modo-treino').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  $('#lista-passos').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.target.click(); } });
+
+  function quadro(agora) {
+    if (!cena.isConnected) { voz?.cancel(); return; } // saiu da tela
+    if (st.rodando) {
+      st.restante -= (agora - st.ultimo) / 1000;
+      if (st.restante <= 0) {
+        bip();
+        if (st.i < sequencia.length - 1) irPara(st.i + 1, true); else concluir();
+      }
+      atualizarRelogio();
+    }
+    st.ultimo = agora;
+    desenhar(cena, MOVIMENTOS[passo().mov], (agora - st.inicio) / 1000);
+    requestAnimationFrame(quadro);
+  }
+  mostrar(false);
+  requestAnimationFrame(quadro);
+}
+
+// ====================== RH: vídeos explicativos ======================
+
+async function telaVideos() {
+  const lista = await api('GET', '/api/rh/videos');
+  const linha = (m) => `
+    <tr><td>${esc(m.titulo)}<div>${etiqueta(m.categoria)}</div></td>
+      <td><form class="f-video linha" data-codigo="${esc(m.codigo)}" style="flex-wrap:nowrap">
+        <input name="url" placeholder="https://www.youtube.com/watch?v=…" value="${esc(m.video?.url)}" style="min-width:220px">
+        <input name="titulo" placeholder="Título (opcional)" value="${esc(m.video?.titulo)}" style="max-width:200px">
+        <button type="submit" class="pequeno">Salvar</button></form>
+        <div class="saida-video ajuda">${m.video ? `Vídeo ativo · atualizado em ${dataBR(m.video.atualizado_em)}` : (m.categoria === 'atividade_fisica' ? 'Sem vídeo: o colaborador vê a demonstração animada.' : 'Sem vídeo: o colaborador vê o passo a passo em texto.')}</div></td></tr>`;
+  app.innerHTML = `
+    <h1>Vídeos explicativos</h1>
+    <p class="suave">Cole o link de um vídeo do YouTube ou Vimeo, ou de um arquivo .mp4. Por exemplo, um vídeo gravado com o fisioterapeuta ou o educador físico da empresa. Ele aparece na tela "Como fazer" do desafio, junto com o treino guiado animado. Para remover, apague o link e salve.</p>
+    <div class="card"><div class="tabela"><table><thead><tr><th>Desafio</th><th>Vídeo</th></tr></thead>
+      <tbody>${lista.map(linha).join('')}</tbody></table></div></div>`;
+  $$('.f-video').forEach((form) => form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const saida = form.nextElementSibling;
+    try {
+      const r = await api('PUT', `/api/rh/videos/${form.dataset.codigo}`, { url: f.get('url'), titulo: f.get('titulo') });
+      saida.textContent = r.removido ? 'Vídeo removido.' : 'Vídeo salvo e ativo.';
+      saida.style.color = 'var(--primaria-escura)';
+    } catch (err) { saida.textContent = err.message; saida.style.color = 'var(--erro)'; }
+  }));
 }

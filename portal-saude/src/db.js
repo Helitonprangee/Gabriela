@@ -140,6 +140,14 @@ CREATE TABLE IF NOT EXISTS pontos_lancamentos (
 );
 CREATE INDEX IF NOT EXISTS idx_pontos_usuario ON pontos_lancamentos(usuario_id);
 
+-- Vídeo explicativo (YouTube, Vimeo ou MP4) que o RH associa a um modelo de desafio.
+CREATE TABLE IF NOT EXISTS modelo_videos (
+  modelo_codigo  TEXT PRIMARY KEY,
+  url            TEXT NOT NULL,
+  titulo         TEXT,
+  atualizado_em  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ===== FASE 2: recompensas (estrutura pronta, ainda sem telas) =====
 CREATE TABLE IF NOT EXISTS parceiros (
   id          INTEGER PRIMARY KEY,

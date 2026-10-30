@@ -146,3 +146,73 @@ iframe.visualizador { height: 50vh; }
   nav#menu a { white-space: nowrap; }
   .saldo { text-align: left; width: 100%; }
 }
+
+/* ===== Tela do exercício ===== */
+.voltar { display: inline-block; margin-bottom: .75rem; font-weight: 500; text-decoration: none; }
+.cabecalho-desafio { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: flex-start; margin-bottom: 1rem; }
+.cabecalho-desafio .info { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+.layout-exercicio { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+@media (max-width: 900px) { .layout-exercicio { grid-template-columns: 1fr; } }
+
+.player { padding: 0; overflow: hidden; }
+.palco { position: relative; background: linear-gradient(#eaf5f0, #f7fbf9 70%); aspect-ratio: 4 / 3; }
+.palco svg { width: 100%; height: 100%; display: block; }
+.palco .legenda { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; padding: .7rem .9rem; pointer-events: none; }
+.palco .etapa { background: rgba(255,255,255,.88); border-radius: 8px; padding: .3rem .6rem; font-size: .8rem; color: var(--suave); }
+.palco .etapa strong { display: block; color: var(--texto); font-size: .95rem; }
+.palco .relogio { background: var(--primaria); color: #fff; border-radius: 10px; padding: .25rem .7rem; font: 700 1.5rem/1.2 ui-monospace, "SF Mono", Menlo, monospace; font-variant-numeric: tabular-nums; }
+.palco .relogio.pausado { background: rgba(29,43,37,.7); }
+.palco .selo { position: absolute; left: .9rem; bottom: .7rem; font-size: .72rem; color: var(--suave); background: rgba(255,255,255,.85); padding: .1rem .45rem; border-radius: 6px; }
+.palco .anuncio { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(16,40,30,.45); color: #fff; font-size: 1.4rem; font-weight: 700; text-align: center; padding: 1rem; }
+.progresso { height: 5px; background: #dfe8e3; }
+.progresso > span { display: block; height: 100%; background: var(--primaria); transition: width .3s linear; }
+.controles { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .7rem .9rem; flex-wrap: wrap; }
+.controles .grupo { display: flex; gap: .4rem; align-items: center; }
+.controles button.icone { width: 42px; height: 42px; padding: 0; border-radius: 50%; display: grid; place-items: center; font-size: 1rem; }
+.controles button.play { width: 52px; height: 52px; font-size: 1.2rem; }
+.instrucao-atual { padding: 0 .9rem .9rem; }
+.instrucao-atual p { margin: 0; }
+.palco-video { aspect-ratio: 16 / 9; background: #000; }
+.palco-video iframe, .palco-video video { width: 100%; height: 100%; border: 0; display: block; }
+
+.passos { list-style: none; margin: 0; padding: 0; }
+.passos li { display: grid; grid-template-columns: 64px 1fr auto; gap: .7rem; align-items: center; padding: .5rem; border-radius: 10px; cursor: pointer; border: 1px solid transparent; }
+.passos li:hover { background: #f3f7f5; }
+.passos li.atual { background: var(--primaria-clara); border-color: #bfe3d3; }
+.passos li.feito .mini { opacity: .45; }
+.passos li.feito .nome::before { content: "✓ "; color: var(--primaria); }
+.passos .mini { width: 64px; height: 48px; background: #eef5f1; border-radius: 8px; }
+.passos .nome { font-weight: 600; font-size: .92rem; }
+.passos .tempo { font-variant-numeric: tabular-nums; color: var(--suave); font-size: .85rem; white-space: nowrap; }
+.passos .fase { grid-column: 1 / -1; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: var(--suave); font-weight: 700; padding: .6rem .5rem 0; cursor: default; }
+.passos .fase:hover { background: none; }
+
+.lista-check { margin: 0; padding-left: 1.2rem; }
+.lista-check li { margin-bottom: .35rem; }
+.lista-num { margin: 0; padding-left: 1.3rem; }
+.lista-num li { margin-bottom: .5rem; }
+.aviso-cuidado { background: var(--alerta-clara); border-radius: var(--raio); padding: 1rem 1.1rem; }
+.aviso-cuidado h3 { color: var(--alerta); }
+
+/* boneco */
+svg .chao { stroke: #b8c9c0; stroke-width: 1.5; }
+svg .tapete { fill: #9fd3bd; }
+svg .parede { fill: #d7e1dc; }
+svg .agua { fill: #cfe8f6; }
+svg .onda { fill: none; stroke: #8cc6e6; stroke-width: 1.5; }
+svg .bike circle, svg .bike path { fill: none; stroke: #7d8f86; stroke-width: 2.2; stroke-linejoin: round; }
+svg .bike .pedivela { stroke-dasharray: 3 3; stroke-width: 1.2; }
+svg line { stroke-linecap: round; }
+svg .m.E, svg .mao.E, svg .pe.E { stroke: #8fc4ad; stroke-width: 6; }
+svg .m.D, svg .mao.D, svg .pe.D { stroke: #167a5b; stroke-width: 6.5; }
+svg .mao, svg .pe { stroke-width: 5 !important; }
+svg .tronco { stroke: #167a5b; stroke-width: 9; }
+svg .cabeca { fill: #167a5b; }
+svg .olho { fill: #fff; }
+.como-fazer { text-align: center; }
+@media (max-width: 600px) {
+  .palco { aspect-ratio: auto; }
+  .palco .legenda { position: static; padding: .6rem .75rem 0; }
+  .palco svg { height: auto; aspect-ratio: 240 / 222; }
+  .palco .selo { display: none; }
+}

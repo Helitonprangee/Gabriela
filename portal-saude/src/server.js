@@ -18,7 +18,7 @@ export const app = express();
 app.disable('x-powered-by');
 app.use((_req, res, next) => {
   res.set({
-    'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; frame-src 'self' blob:; object-src 'self' blob:",
+    'Content-Security-Policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; frame-src 'self' blob: https://www.youtube-nocookie.com https://player.vimeo.com; media-src 'self' https:; object-src 'self' blob:",
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'same-origin',
   });
